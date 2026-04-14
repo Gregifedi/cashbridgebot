@@ -2,6 +2,7 @@ from flask import Flask, request
 import requests
 import os
 
+from core.rules import is_payment_message, extract_amount
 from config import BOT_TOKEN, OWNER_CHAT_ID, TELEGRAM_API
 
 app = Flask(__name__)
@@ -14,6 +15,7 @@ def send_message(chat_id, text):
             "chat_id": chat_id,
             "text": text
         }
+
         response = requests.post(url, json=payload, timeout=10)
 
         if response.status_code != 200:
@@ -44,13 +46,41 @@ def webhook():
             chat_id = msg["chat"]["id"]
             text = msg.get("text", "")
 
+            # START
             if text == "/start":
                 send_message(chat_id, "CashBridgeBot online. Ready.")
+
+            # PAYMENT DETECTION
+            elif is_payment_message(text):
+
+                amount = extract_amount(text)
+
+                if amount:
+                    send_message(chat_id, f"💰 Payment detected: ₦{amount}")
+
+                    if OWNER_CHAT_ID:
+                        send_message(
+                            OWNER_CHAT_ID,
+                            f"💰 PAYMENT ALERT\nAmount: ₦{amount}\n\n{text}"
+                        )
+                else:
+                    send_message(chat_id, "💰 Payment detected")
+
+                    if OWNER_CHAT_ID:
+                        send_message(
+                            OWNER_CHAT_ID,
+                            f"💰 PAYMENT ALERT (NO AMOUNT)\n\n{text}"
+                        )
+
+            # NORMAL MESSAGE
             else:
                 send_message(chat_id, f"You said: {text}")
 
-            if OWNER_CHAT_ID:
-                send_message(OWNER_CHAT_ID, f"📩 New message:\n{text}")
+                if OWNER_CHAT_ID:
+                    send_message(
+                        OWNER_CHAT_ID,
+                        f"📩 New message:\n{text}"
+                    )
 
         return "ok", 200
 
