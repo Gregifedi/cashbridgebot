@@ -4,8 +4,12 @@ import os
 
 from core.rules import is_payment_message, extract_amount
 from config import BOT_TOKEN, OWNER_CHAT_ID, TELEGRAM_API
+from database.db import init_db, save_payment
 
 app = Flask(__name__)
+
+# Initialize database
+init_db()
 
 
 def send_message(chat_id, text):
@@ -46,7 +50,7 @@ def webhook():
             chat_id = msg["chat"]["id"]
             text = msg.get("text", "")
 
-            # START
+            # START COMMAND
             if text == "/start":
                 send_message(chat_id, "CashBridgeBot online. Ready.")
 
@@ -54,6 +58,9 @@ def webhook():
             elif is_payment_message(text):
 
                 amount = extract_amount(text)
+
+                # SAVE TO DATABASE
+                save_payment(amount if amount else "unknown", text)
 
                 if amount:
                     send_message(chat_id, f"💰 Payment detected: ₦{amount}")
@@ -92,3 +99,18 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
