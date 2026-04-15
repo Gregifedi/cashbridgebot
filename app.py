@@ -4,137 +4,82 @@ import os
 
 from core.rules import is_payment_message, extract_amount
 from config import OWNER_CHAT_ID, TELEGRAM_API
-from database.db import init_db, save_payment
+from database.db import (
+    init_db,
+    save_payment,
+    get_total,
+    get_today_total,
+    get_count,
+    get_top_sender
+)
 
 app = Flask(__name__)
 
-# Initialize DB on startup
 init_db()
 
 
-# -----------------------
-# SEND MESSAGE FUNCTION
-# -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
 
-        payload = {
-            "chat_id": chat_id,
-            "text": text
-        }
-
-        response = requests.post(url, json=payload, timeout=10)
-
-        if response.status_code != 200:
-            print("Telegram API error:", response.text)
-
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print("Send message error:", e)
+        print("Send error:", e)
 
 
-# -----------------------
-# HOME ROUTE
-# -----------------------
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
     return "CashBridgeBot is running"
 
 
-# -----------------------
-# WEBHOOK ROUTE
-# -----------------------
-@app.route("/paystack/webhook", methods=["POST"])
-def paystack_webhook():
+@app.route("/webhook", methods=["POST"])
+def webhook():
     try:
         data = request.get_json()
-
         if not data:
             return "no data", 200
 
-        print("PAYSTACK EVENT:", data)
+        print("Incoming:", data)
 
-        event = data.get("event")
+        if "message" in data:
+            msg = data["message"]
 
-        if event == "charge.success":
+            chat_id = msg["chat"]["id"]
+            text = msg.get("text", "")
+            sender = msg.get("chat", {}).get("username", "unknown")
 
-            payload = data.get("data", {})
+            if text == "/start":
+                send_message(chat_id, "Bot is alive")
 
-            amount = payload.get("amount", 0) / 100
-            email = payload.get("customer", {}).get("email", "unknown")
-            reference = payload.get("reference", "no-ref")
+            elif text == "/total":
+                send_message(chat_id, f"Total: ₦{get_total()}")
 
-            message = f"""💰 NEW PAYMENT RECEIVED
+            elif text == "/today":
+                send_message(chat_id, f"Today: ₦{get_today_total()}")
 
-Amount: ₦{amount}
-Email: {email}
-Ref: {reference}
-"""
+            elif text == "/stats":
+                total = get_total()
+                today = get_today_total()
+                count = get_count()
+                top_sender, top_amount = get_top_sender()
 
-            # Send Telegram alert
-            if OWNER_CHAT_ID:
-                send_message(OWNER_CHAT_ID, message)
-
-            # Save to database
-            save_payment(amount, message, sender=email)
-
-        return "ok", 200
-
-    except Exception as e:
-        print("Paystack webhook error:", e)
-        return "error", 200
-        msg = data["message"]
-
-        chat_id = msg["chat"]["id"]
-        text = msg.get("text", "")
-
-        # sender info (safe fallback)
-        sender = msg.get("chat", {}).get("username", "unknown")
-
-        # -----------------------
-        # START COMMAND
-        # -----------------------
-        if text == "/start":
-            send_message(chat_id, "CashBridgeBot online. Ready.")
-
-        # -----------------------
-        # PAYMENT DETECTION
-        # -----------------------
-        elif is_payment_message(text):
-
-            amount = extract_amount(text)
-
-            # save to database (always save even if amount missing)
-            save_payment(amount, text, sender=sender)
-
-            if amount:
-                send_message(chat_id, f"💰 Payment detected: ₦{amount}")
-
-                if OWNER_CHAT_ID:
-                    send_message(
-                        OWNER_CHAT_ID,
-                        f"💰 PAYMENT ALERT\nAmount: ₦{amount}\nSender: @{sender}\n\n{text}"
-                    )
-            else:
-                send_message(chat_id, "💰 Payment detected")
-
-                if OWNER_CHAT_ID:
-                    send_message(
-                        OWNER_CHAT_ID,
-                        f"💰 PAYMENT ALERT (NO AMOUNT)\nSender: @{sender}\n\n{text}"
-                    )
-
-        # -----------------------
-        # NORMAL MESSAGE
-        # -----------------------
-        else:
-            send_message(chat_id, f"You said: {text}")
-
-            if OWNER_CHAT_ID:
-                send_message(
-                    OWNER_CHAT_ID,
-                    f"📩 New message from @{sender}:\n{text}"
+                send_message(chat_id,
+                    f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top_sender} ({top_amount})"
                 )
+
+            elif is_payment_message(text):
+                amount = extract_amount(text)
+
+                save_payment(amount, text, sender)
+
+                send_message(chat_id, f"Payment detected: ₦{amount}")
+
+                if OWNER_CHAT_ID:
+                    send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
+
+            else:
+                send_message(chat_id, text)
 
         return "ok", 200
 
@@ -143,21 +88,34 @@ Ref: {reference}
         return "error", 200
 
 
-# -----------------------
-# RUN APP
-# -----------------------
+@app.route("/paystack/webhook", methods=["POST"])
+def paystack_webhook():
+    try:
+        data = request.get_json()
+        if not data:
+            return "no data", 200
+
+        if data.get("event") == "charge.success":
+            payload = data["data"]
+
+            amount = payload.get("amount", 0) / 100
+            email = payload.get("customer", {}).get("email", "unknown")
+            ref = payload.get("reference", "no-ref")
+
+            msg = f"PAYSTACK PAYMENT\n₦{amount}\n{email}\n{ref}"
+
+            if OWNER_CHAT_ID:
+                send_message(OWNER_CHAT_ID, msg)
+
+            save_payment(amount, msg, email)
+
+        return "ok", 200
+
+    except Exception as e:
+        print("Paystack error:", e)
+        return "error", 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
-
-
-
-
-
-
-
-
-
-
