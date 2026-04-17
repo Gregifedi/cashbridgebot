@@ -36,20 +36,20 @@ def init_db():
 
 
 # -----------------------
-# SAVE PAYMENT (FIXED)
+# SAVE PAYMENT
 # -----------------------
 def save_payment(amount, message, sender="unknown", reference=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     try:
-        clean_amount = float(amount) if amount is not None else None
+        amount = float(amount) if amount is not None else None
 
         cursor.execute("""
             INSERT INTO payments (amount, message, sender, reference, created_at)
             VALUES (?, ?, ?, ?, ?)
         """, (
-            clean_amount,
+            amount,
             message,
             sender,
             reference,
@@ -81,7 +81,7 @@ def save_user(chat_id, username):
         conn.commit()
 
     except Exception as e:
-        print("Save user error:", e)
+        print("SAVE USER ERROR:", e)
 
     finally:
         conn.close()
@@ -94,6 +94,8 @@ def update_user_email(chat_id, email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
+
     cursor.execute("""
         UPDATE users
         SET email = ?
@@ -105,14 +107,16 @@ def update_user_email(chat_id, email):
 
 
 # -----------------------
-# GET USER BY EMAIL
+# GET CHAT BY EMAIL
 # -----------------------
 def get_user_by_email(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
+
     cursor.execute("""
-        SELECT chat_id FROM users WHERE email = ?
+        SELECT chat_id FROM users WHERE LOWER(email) = ?
     """, (email,))
 
     result = cursor.fetchone()

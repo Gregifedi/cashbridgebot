@@ -118,13 +118,13 @@ def paystack_webhook():
             reference = payload.get("reference")
             amount = payload.get("amount", 0) / 100
             email = payload.get("customer", {}).get("email", "unknown")
-
-            message = f"""💰 NEW PAYMENT RECEIVED
-
-Amount: ₦{amount}
-Email: {email}
-Ref: {reference}
-"""
+            
+            message = (
+    "💰 NEW PAYMENT RECEIVED\n\n"
+    f"Amount: ₦{amount}\n"
+    f"Email: {email}\n"
+    f"Ref: {reference}"
+)
 
             if OWNER_CHAT_ID:
                 send_message(OWNER_CHAT_ID, message)
