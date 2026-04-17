@@ -1,7 +1,8 @@
 from flask import Flask, request
 import requests
 import os
-
+import hashlib
+import hmac
 from core.rules import is_payment_message, extract_amount
 from config import OWNER_CHAT_ID, TELEGRAM_API
 from database.db import (
@@ -91,10 +92,50 @@ def webhook():
 @app.route("/paystack/webhook", methods=["POST"])
 def paystack_webhook():
     try:
-        data = request.get_json()
-        if not data:
-            return "no data", 200
+        secret = os.environ.get("PAYSTACK_SECRET_KEY")
 
+        signature = request.headers.get("x-paystack-signature")
+        payload = request.data
+
+        computed_signature = hmac.new(
+            secret.encode(),
+            payload,
+            hashlib.sha512
+        ).hexdigest()
+
+        # Reject fake requests
+        if signature != computed_signature:
+            print("Invalid Paystack signature")
+            return "unauthorized", 401
+
+        data = request.get_json()
+
+        print("PAYSTACK EVENT:", data)
+
+        if data.get("event") == "charge.success":
+            payload = data.get("data", {})
+
+            reference = payload.get("reference")
+            amount = payload.get("amount", 0) / 100
+            email = payload.get("customer", {}).get("email", "unknown")
+
+            message = f"""💰 NEW PAYMENT RECEIVED
+
+Amount: ₦{amount}
+Email: {email}
+Ref: {reference}
+"""
+
+            if OWNER_CHAT_ID:
+                send_message(OWNER_CHAT_ID, message)
+
+            save_payment(amount, message, sender=email)
+
+        return "ok", 200
+
+    except Exception as e:
+        print("Paystack webhook error:", e)
+        return "error", 200
         if data.get("event") == "charge.success":
             payload = data["data"]
 
