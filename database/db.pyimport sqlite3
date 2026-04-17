@@ -1,7 +1,4 @@
-import sqlite3
-from datetime import datetime, date
-
-DB_PATH = "database/payments.db"
+ments.db"
 
 
 # -----------------------
@@ -11,6 +8,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     cursor = conn.cursor()
 
+    # Payments table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,6 +20,7 @@ def init_db():
         )
     """)
 
+    # Users table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,6 +151,7 @@ def get_total():
             FROM payments
             WHERE amount IS NOT NULL
         """)
+
         return cursor.fetchone()[0]
 
     finally:
@@ -194,6 +194,7 @@ def get_count():
             FROM payments
             WHERE amount IS NOT NULL
         """)
+
         return cursor.fetchone()[0]
 
     finally:
@@ -218,7 +219,12 @@ def get_top_sender():
         """)
 
         result = cursor.fetchone()
-        return (result[0], result[1]) if result else (None, 0)
+
+        if result:
+            return result[0], result[1]
+
+        return None, 0
 
     finally:
-        conn.close()
+        conn.close()	
+
