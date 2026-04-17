@@ -8,13 +8,13 @@ DB_PATH = "database/payments.db"
 # INIT DB
 # -----------------------
 def init_db():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            amount INTEGER,
+            amount REAL,
             message TEXT,
             sender TEXT,
             reference TEXT UNIQUE,
@@ -36,17 +36,14 @@ def init_db():
 
 
 # -----------------------
-# SAVE PAYMENT
+# SAVE PAYMENT (FIXED)
 # -----------------------
 def save_payment(amount, message, sender="unknown", reference=None):
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     try:
-        try:
-            clean_amount = int(amount)
-        except:
-            clean_amount = None
+        clean_amount = float(amount) if amount is not None else None
 
         cursor.execute("""
             INSERT INTO payments (amount, message, sender, reference, created_at)
@@ -61,11 +58,8 @@ def save_payment(amount, message, sender="unknown", reference=None):
 
         conn.commit()
 
-    except sqlite3.IntegrityError:
-        print("Duplicate payment ignored:", reference)
-
     except Exception as e:
-        print("Save payment error:", e)
+        print("DB INSERT ERROR:", e)
 
     finally:
         conn.close()
@@ -75,7 +69,7 @@ def save_payment(amount, message, sender="unknown", reference=None):
 # SAVE USER
 # -----------------------
 def save_user(chat_id, username):
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     try:
@@ -97,128 +91,113 @@ def save_user(chat_id, username):
 # UPDATE USER EMAIL
 # -----------------------
 def update_user_email(chat_id, email):
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("""
-            UPDATE users
-            SET email = ?
-            WHERE chat_id = ?
-        """, (email, chat_id))
+    cursor.execute("""
+        UPDATE users
+        SET email = ?
+        WHERE chat_id = ?
+    """, (email, chat_id))
 
-        conn.commit()
-
-    except Exception as e:
-        print("Update email error:", e)
-
-    finally:
-        conn.close()
+    conn.commit()
+    conn.close()
 
 
 # -----------------------
 # GET USER BY EMAIL
 # -----------------------
 def get_user_by_email(email):
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("""
-            SELECT chat_id FROM users WHERE email = ?
-        """, (email,))
+    cursor.execute("""
+        SELECT chat_id FROM users WHERE email = ?
+    """, (email,))
 
-        result = cursor.fetchone()
-        return result[0] if result else None
+    result = cursor.fetchone()
+    conn.close()
 
-    except Exception as e:
-        print("Get user error:", e)
-        return None
-
-    finally:
-        conn.close()
+    return result[0] if result else None
 
 
 # -----------------------
-# TOTAL (ALL TIME)
+# TOTAL
 # -----------------------
 def get_total():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("""
-            SELECT COALESCE(SUM(amount), 0)
-            FROM payments
-            WHERE amount IS NOT NULL
-        """)
-        return cursor.fetchone()[0]
+    cursor.execute("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE amount IS NOT NULL
+    """)
 
-    finally:
-        conn.close()
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
 
 
 # -----------------------
 # TODAY TOTAL
 # -----------------------
 def get_today_total():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        today = date.today().isoformat()
+    today = date.today().isoformat()
 
-        cursor.execute("""
-            SELECT COALESCE(SUM(amount), 0)
-            FROM payments
-            WHERE amount IS NOT NULL
-            AND DATE(created_at) = ?
-        """, (today,))
+    cursor.execute("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE amount IS NOT NULL
+        AND DATE(created_at) = ?
+    """, (today,))
 
-        return cursor.fetchone()[0]
-
-    finally:
-        conn.close()
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
 
 
 # -----------------------
-# COUNT PAYMENTS
+# COUNT
 # -----------------------
 def get_count():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM payments
-            WHERE amount IS NOT NULL
-        """)
-        return cursor.fetchone()[0]
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM payments
+        WHERE amount IS NOT NULL
+    """)
 
-    finally:
-        conn.close()
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
 
 # -----------------------
 # TOP SENDER
 # -----------------------
 def get_top_sender():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    try:
-        cursor.execute("""
-            SELECT sender, SUM(amount) as total
-            FROM payments
-            WHERE amount IS NOT NULL
-            GROUP BY sender
-            ORDER BY total DESC
-            LIMIT 1
-        """)
+    cursor.execute("""
+        SELECT sender, SUM(amount) as total
+        FROM payments
+        WHERE amount IS NOT NULL
+        GROUP BY sender
+        ORDER BY total DESC
+        LIMIT 1
+    """)
 
-        result = cursor.fetchone()
-        return (result[0], result[1]) if result else (None, 0)
+    result = cursor.fetchone()
+    conn.close()
 
-    finally:
-        conn.close()
+    if result:
+        return result[0], result[1]
+
+    return None, 0
