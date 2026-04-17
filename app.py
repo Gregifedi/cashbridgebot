@@ -148,7 +148,12 @@ Ref: {reference}
             if OWNER_CHAT_ID:
                 send_message(OWNER_CHAT_ID, msg)
 
-            save_payment(amount, msg, email)
+            save_payment(
+    amount,
+    message,
+    sender=email,
+    reference=reference
+)
 
         return "ok", 200
 
