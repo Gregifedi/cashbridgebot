@@ -51,12 +51,15 @@ def save_payment(amount, message, sender="unknown", reference=None):
         """, (
             amount,
             message,
-            sender,
+            sender.lower(),
             reference,
             datetime.utcnow().isoformat()
         ))
 
         conn.commit()
+
+    except sqlite3.IntegrityError:
+        print("Duplicate payment ignored:", reference)
 
     except Exception as e:
         print("DB INSERT ERROR:", e)
@@ -126,7 +129,24 @@ def get_user_by_email(email):
 
 
 # -----------------------
-# TOTAL
+# GET EMAIL BY CHAT
+# -----------------------
+def get_email_by_chat(chat_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT email FROM users WHERE chat_id = ?
+    """, (chat_id,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    return result[0] if result else None
+
+
+# -----------------------
+# TOTAL (ALL)
 # -----------------------
 def get_total():
     conn = sqlite3.connect(DB_PATH)
@@ -190,18 +210,75 @@ def get_top_sender():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT sender, SUM(amount) as total
+        SELECT sender, SUM(amount)
         FROM payments
         WHERE amount IS NOT NULL
         GROUP BY sender
-        ORDER BY total DESC
+        ORDER BY SUM(amount) DESC
         LIMIT 1
     """)
 
     result = cursor.fetchone()
     conn.close()
 
-    if result:
-        return result[0], result[1]
+    return result if result else (None, 0)
 
-    return None, 0
+
+# -----------------------
+# USER TOTAL
+# -----------------------
+def get_user_total(email):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE LOWER(sender) = LOWER(?)
+    """, (email,))
+
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
+
+
+# -----------------------
+# USER TODAY
+# -----------------------
+def get_user_today(email):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    today = date.today().isoformat()
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE LOWER(sender) = LOWER(?)
+        AND DATE(created_at) = ?
+    """, (email, today))
+
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
+
+
+# -----------------------
+# USER LAST
+# -----------------------
+def get_user_last(email):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT amount, created_at, reference
+        FROM payments
+        WHERE LOWER(sender) = LOWER(?)
+        ORDER BY id DESC
+        LIMIT 1
+    """, (email,))
+
+    result = cursor.fetchone()
+    conn.close()
+    return result	
+
