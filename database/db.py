@@ -282,3 +282,20 @@ def get_user_last(email):
     conn.close()
     return result	
 
+# -----------------------
+# USER PAYMENT HISTORY
+# -----------------------
+def get_user_history(email, limit=5):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT amount, created_at
+        FROM payments
+        WHERE LOWER(sender) = LOWER(?)
+        ORDER BY id DESC
+        LIMIT ?
+    """, (email, limit))
+
+    results = cursor.fetchall()
+    conn.close()

@@ -8,19 +8,27 @@ from core.rules import is_payment_message, extract_amount
 from config import OWNER_CHAT_ID, TELEGRAM_API
 
 from database.db import (
+    # Core
     init_db,
     save_payment,
+
+    # Global stats
     get_total,
     get_today_total,
     get_count,
     get_top_sender,
+
+    # User mapping
+    save_user,
+    update_user_email,
     get_user_by_email,
+    get_email_by_chat,
+
+    # User stats
     get_user_total,
     get_user_today,
     get_user_last,
-    save_user,
-    update_user_email,
-    get_email_by_chat
+    get_user_history
 )
 
 app = Flask(__name__)
@@ -66,7 +74,7 @@ def webhook():
             msg = data["message"]
 
             chat_id = msg["chat"]["id"]
-            text = msg.get("text", "")
+            text = msg.get("text", "").strip()
             username = msg.get("chat", {}).get("username", "unknown")
 
             # -----------------------
@@ -91,6 +99,27 @@ def webhook():
                     chat_id,
                     f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top_sender} ({int(top_amount)})"
                 )
+
+            # -----------------------
+            # HISTORY (FIXED POSITION)
+            # -----------------------
+            elif text == "/history":
+                email = get_email_by_chat(chat_id)
+
+                if email:
+                    history = get_user_history(email)
+
+                    if history:
+                        msg = "🧾 Last Payments:\n\n"
+
+                        for i, (amount, created_at) in enumerate(history, 1):
+                            msg += f"{i}. ₦{int(amount)} — {created_at[:10]}\n"
+
+                        send_message(chat_id, msg)
+                    else:
+                        send_message(chat_id, "No payment history found.")
+                else:
+                    send_message(chat_id, "❌ Link your email first using /link")
 
             # -----------------------
             # LINK EMAIL
@@ -209,7 +238,6 @@ def paystack_webhook():
                 f"Ref: {reference}"
             )
 
-            # Send to linked user
             user_chat = get_user_by_email(email)
 
             if user_chat:
@@ -217,7 +245,6 @@ def paystack_webhook():
             elif OWNER_CHAT_ID:
                 send_message(OWNER_CHAT_ID, message)
 
-            # Save payment
             save_payment(
                 amount,
                 message,
