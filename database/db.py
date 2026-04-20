@@ -44,6 +44,7 @@ def save_payment(amount, message, sender="unknown", reference=None):
 
     try:
         amount = float(amount) if amount is not None else None
+        sender = sender.strip().lower() if sender else "unknown"
 
         cursor.execute("""
             INSERT INTO payments (amount, message, sender, reference, created_at)
@@ -51,7 +52,7 @@ def save_payment(amount, message, sender="unknown", reference=None):
         """, (
             amount,
             message,
-            sender.lower(),
+            sender,
             reference,
             datetime.utcnow().isoformat()
         ))
@@ -146,7 +147,7 @@ def get_email_by_chat(chat_id):
 
 
 # -----------------------
-# TOTAL (ALL)
+# GLOBAL STATS
 # -----------------------
 def get_total():
     conn = sqlite3.connect(DB_PATH)
@@ -163,9 +164,6 @@ def get_total():
     return total
 
 
-# -----------------------
-# TODAY TOTAL
-# -----------------------
 def get_today_total():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -184,9 +182,6 @@ def get_today_total():
     return total
 
 
-# -----------------------
-# COUNT
-# -----------------------
 def get_count():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -202,9 +197,6 @@ def get_count():
     return count
 
 
-# -----------------------
-# TOP SENDER
-# -----------------------
 def get_top_sender():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -225,16 +217,18 @@ def get_top_sender():
 
 
 # -----------------------
-# USER TOTAL
+# USER STATS
 # -----------------------
 def get_user_total(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
+
     cursor.execute("""
         SELECT COALESCE(SUM(amount), 0)
         FROM payments
-        WHERE LOWER(sender) = LOWER(?)
+        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
     """, (email,))
 
     total = cursor.fetchone()[0]
@@ -242,19 +236,17 @@ def get_user_total(email):
     return total
 
 
-# -----------------------
-# USER TODAY
-# -----------------------
 def get_user_today(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
     today = date.today().isoformat()
 
     cursor.execute("""
         SELECT COALESCE(SUM(amount), 0)
         FROM payments
-        WHERE LOWER(sender) = LOWER(?)
+        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
         AND DATE(created_at) = ?
     """, (email, today))
 
@@ -263,39 +255,42 @@ def get_user_today(email):
     return total
 
 
-# -----------------------
-# USER LAST
-# -----------------------
 def get_user_last(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
+
     cursor.execute("""
         SELECT amount, created_at, reference
         FROM payments
-        WHERE LOWER(sender) = LOWER(?)
+        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
         ORDER BY id DESC
         LIMIT 1
     """, (email,))
 
     result = cursor.fetchone()
     conn.close()
-    return result	
+    return result
+
 
 # -----------------------
-# USER PAYMENT HISTORY
+# USER HISTORY
 # -----------------------
 def get_user_history(email, limit=5):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    email = email.strip().lower()
+
     cursor.execute("""
         SELECT amount, created_at
         FROM payments
-        WHERE LOWER(sender) = LOWER(?)
+        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
         ORDER BY id DESC
         LIMIT ?
     """, (email, limit))
 
     results = cursor.fetchall()
     conn.close()
+    return results
