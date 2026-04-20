@@ -245,6 +245,21 @@ def paystack_webhook():
 # -----------------------
 # DEBUG ROUTE
 # -----------------------
+@app.route("/debug/users")
+def debug_users():
+    import sqlite3
+    from database.db import DB_PATH
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT chat_id, email FROM users")
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return {"users": rows}
+# -----------------------
 @app.route("/debug/payments")
 def debug_payments():
     try:
