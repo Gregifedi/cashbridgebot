@@ -8,43 +8,38 @@ from core.rules import is_payment_message, extract_amount
 from config import OWNER_CHAT_ID, TELEGRAM_API
 
 from database.db import (
-    # Core
     init_db,
     save_payment,
-
-    # Global stats
     get_total,
     get_today_total,
     get_count,
     get_top_sender,
-
-    # User mapping
     save_user,
     update_user_email,
     get_user_by_email,
     get_email_by_chat,
-
-    # User stats
     get_user_total,
     get_user_today,
     get_user_last,
     get_user_history
 )
 
+import sqlite3
+from database.db import DB_PATH
+
 app = Flask(__name__)
 
-# Initialize DB
+# Init DB
 init_db()
 
 
 # -----------------------
-# SEND TELEGRAM MESSAGE
+# SEND MESSAGE
 # -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
-        requests.post(url, json=payload, timeout=10)
+        requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
     except Exception as e:
         print("Send error:", e)
 
@@ -52,7 +47,7 @@ def send_message(chat_id, text):
 # -----------------------
 # HOME
 # -----------------------
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
     return "CashBridgeBot is running"
 
@@ -77,9 +72,7 @@ def webhook():
             text = msg.get("text", "").strip()
             username = msg.get("chat", {}).get("username", "unknown")
 
-            # -----------------------
-            # BASIC COMMANDS
-            # -----------------------
+            # -------- BASIC --------
             if text == "/start":
                 send_message(chat_id, "Bot is alive")
 
@@ -100,9 +93,7 @@ def webhook():
                     f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top_sender} ({int(top_amount)})"
                 )
 
-            # -----------------------
-            # HISTORY (FIXED POSITION)
-            # -----------------------
+            # -------- HISTORY --------
             elif text == "/history":
                 email = get_email_by_chat(chat_id)
 
@@ -110,20 +101,18 @@ def webhook():
                     history = get_user_history(email)
 
                     if history:
-                        msg = "🧾 Last Payments:\n\n"
+                        msg_out = "🧾 Last Payments:\n\n"
 
                         for i, (amount, created_at) in enumerate(history, 1):
-                            msg += f"{i}. ₦{int(amount)} — {created_at[:10]}\n"
+                            msg_out += f"{i}. ₦{int(amount)} — {created_at[:10]}\n"
 
-                        send_message(chat_id, msg)
+                        send_message(chat_id, msg_out)
                     else:
                         send_message(chat_id, "No payment history found.")
                 else:
                     send_message(chat_id, "❌ Link your email first using /link")
 
-            # -----------------------
-            # LINK EMAIL
-            # -----------------------
+            # -------- LINK --------
             elif text.startswith("/link"):
                 try:
                     email = text.split(" ", 1)[1].strip().lower()
@@ -132,13 +121,10 @@ def webhook():
                     update_user_email(chat_id, email)
 
                     send_message(chat_id, f"✅ Linked to {email}")
-
                 except:
                     send_message(chat_id, "Usage: /link your@email.com")
 
-            # -----------------------
-            # USER STATS
-            # -----------------------
+            # -------- USER STATS --------
             elif text == "/my_total":
                 email = get_email_by_chat(chat_id)
 
@@ -165,18 +151,13 @@ def webhook():
 
                     if last:
                         amount, time, ref = last
-                        send_message(
-                            chat_id,
-                            f"🧾 Last Payment:\n₦{int(amount)}\n{time}\n{ref}"
-                        )
+                        send_message(chat_id, f"🧾 Last Payment:\n₦{int(amount)}\n{time}\n{ref}")
                     else:
                         send_message(chat_id, "No payments found.")
                 else:
                     send_message(chat_id, "❌ Link your email first using /link")
 
-            # -----------------------
-            # TEXT PAYMENT DETECTION
-            # -----------------------
+            # -------- TEXT PAYMENT --------
             elif is_payment_message(text):
                 amount = extract_amount(text)
 
@@ -187,9 +168,7 @@ def webhook():
                 if OWNER_CHAT_ID:
                     send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
 
-            # -----------------------
-            # DEFAULT
-            # -----------------------
+            # -------- DEFAULT --------
             else:
                 send_message(chat_id, text)
 
@@ -231,6 +210,8 @@ def paystack_webhook():
             amount = info.get("amount", 0) / 100
             email = info.get("customer", {}).get("email", "unknown").strip().lower()
 
+            print("DEBUG SAVING:", email, amount, reference)
+
             message = (
                 "💰 NEW PAYMENT RECEIVED\n\n"
                 f"Amount: ₦{int(amount)}\n"
@@ -252,11 +233,38 @@ def paystack_webhook():
                 reference=reference
             )
 
+            print("DEBUG SAVED SUCCESS")
+
         return "ok", 200
 
     except Exception as e:
         print("Paystack webhook error:", e)
         return "error", 200
+
+
+# -----------------------
+# DEBUG ROUTE
+# -----------------------
+@app.route("/debug/payments")
+def debug_payments():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT sender, amount, created_at
+            FROM payments
+            ORDER BY id DESC
+            LIMIT 5
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return {"payments": rows}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # -----------------------
