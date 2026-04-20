@@ -1,3 +1,16 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
 import sqlite3
 from datetime import datetime, date
 
@@ -43,8 +56,8 @@ def save_payment(amount, message, sender="unknown", reference=None):
     cursor = conn.cursor()
 
     try:
-        amount = float(amount) if amount is not None else None
-        sender = sender.strip().lower() if sender else "unknown"
+        amount = float(amount) if amount is not None else 0.0
+        sender = (sender or "unknown").strip().lower()
 
         cursor.execute("""
             INSERT INTO payments (amount, message, sender, reference, created_at)
@@ -70,7 +83,7 @@ def save_payment(amount, message, sender="unknown", reference=None):
 
 
 # -----------------------
-# SAVE USER
+# USER SAVE / LINK
 # -----------------------
 def save_user(chat_id, username):
     conn = sqlite3.connect(DB_PATH)
@@ -84,54 +97,26 @@ def save_user(chat_id, username):
 
         conn.commit()
 
-    except Exception as e:
-        print("SAVE USER ERROR:", e)
-
     finally:
         conn.close()
 
 
-# -----------------------
-# UPDATE USER EMAIL
-# -----------------------
 def update_user_email(chat_id, email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    email = email.strip().lower()
+    email = (email or "").strip().lower()
 
     cursor.execute("""
-        UPDATE users
-        SET email = ?
-        WHERE chat_id = ?
-    """, (email, chat_id))
+        INSERT INTO users (chat_id, email)
+        VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET email=excluded.email
+    """, (chat_id, email))
 
     conn.commit()
     conn.close()
 
 
-# -----------------------
-# GET CHAT BY EMAIL
-# -----------------------
-def get_user_by_email(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    email = email.strip().lower()
-
-    cursor.execute("""
-        SELECT chat_id FROM users WHERE LOWER(email) = ?
-    """, (email,))
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result[0] if result else None
-
-
-# -----------------------
-# GET EMAIL BY CHAT
-# -----------------------
 def get_email_by_chat(chat_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -146,6 +131,22 @@ def get_email_by_chat(chat_id):
     return result[0] if result else None
 
 
+def get_user_by_email(email):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    email = (email or "").strip().lower()
+
+    cursor.execute("""
+        SELECT chat_id FROM users WHERE LOWER(email) = ?
+    """, (email,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    return result[0] if result else None
+
+
 # -----------------------
 # GLOBAL STATS
 # -----------------------
@@ -153,13 +154,9 @@ def get_total():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(amount), 0)
-        FROM payments
-        WHERE amount IS NOT NULL
-    """)
-
+    cursor.execute("SELECT COALESCE(SUM(amount),0) FROM payments WHERE amount IS NOT NULL")
     total = cursor.fetchone()[0]
+
     conn.close()
     return total
 
@@ -171,10 +168,9 @@ def get_today_total():
     today = date.today().isoformat()
 
     cursor.execute("""
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount),0)
         FROM payments
-        WHERE amount IS NOT NULL
-        AND DATE(created_at) = ?
+        WHERE DATE(created_at)=?
     """, (today,))
 
     total = cursor.fetchone()[0]
@@ -186,13 +182,9 @@ def get_count():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM payments
-        WHERE amount IS NOT NULL
-    """)
-
+    cursor.execute("SELECT COUNT(*) FROM payments")
     count = cursor.fetchone()[0]
+
     conn.close()
     return count
 
@@ -202,11 +194,10 @@ def get_top_sender():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT sender, SUM(amount)
+        SELECT sender, COALESCE(SUM(amount),0) as total
         FROM payments
-        WHERE amount IS NOT NULL
         GROUP BY sender
-        ORDER BY SUM(amount) DESC
+        ORDER BY total DESC
         LIMIT 1
     """)
 
@@ -223,12 +214,12 @@ def get_user_total(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    email = email.strip().lower()
+    email = (email or "").strip().lower()
 
     cursor.execute("""
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount),0)
         FROM payments
-        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
+        WHERE LOWER(sender)=LOWER(?)
     """, (email,))
 
     total = cursor.fetchone()[0]
@@ -240,14 +231,14 @@ def get_user_today(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    email = email.strip().lower()
+    email = (email or "").strip().lower()
     today = date.today().isoformat()
 
     cursor.execute("""
-        SELECT COALESCE(SUM(amount), 0)
+        SELECT COALESCE(SUM(amount),0)
         FROM payments
-        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
-        AND DATE(created_at) = ?
+        WHERE LOWER(sender)=LOWER(?)
+        AND DATE(created_at)=?
     """, (email, today))
 
     total = cursor.fetchone()[0]
@@ -259,12 +250,12 @@ def get_user_last(email):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    email = email.strip().lower()
+    email = (email or "").strip().lower()
 
     cursor.execute("""
         SELECT amount, created_at, reference
         FROM payments
-        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
+        WHERE LOWER(sender)=LOWER(?)
         ORDER BY id DESC
         LIMIT 1
     """, (email,))
@@ -274,23 +265,21 @@ def get_user_last(email):
     return result
 
 
-# -----------------------
-# USER HISTORY
-# -----------------------
 def get_user_history(email, limit=5):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    email = email.strip().lower()
+    email = (email or "").strip().lower()
 
     cursor.execute("""
         SELECT amount, created_at
         FROM payments
-        WHERE TRIM(LOWER(sender)) = TRIM(LOWER(?))
+        WHERE LOWER(sender)=LOWER(?)
         ORDER BY id DESC
         LIMIT ?
     """, (email, limit))
 
-    results = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    return results
+
+    return rows

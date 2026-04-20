@@ -16,26 +16,19 @@ from database.db import (
     get_top_sender,
     save_user,
     update_user_email,
-    get_user_by_email,
     get_email_by_chat,
+    get_user_by_email,
     get_user_total,
     get_user_today,
     get_user_last,
     get_user_history
 )
 
-import sqlite3
-from database.db import DB_PATH
-
 app = Flask(__name__)
 
-# Init DB
 init_db()
 
 
-# -----------------------
-# SEND MESSAGE
-# -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
@@ -44,144 +37,83 @@ def send_message(chat_id, text):
         print("Send error:", e)
 
 
-# -----------------------
-# HOME
-# -----------------------
 @app.route("/")
 def home():
     return "CashBridgeBot is running"
 
 
-# -----------------------
-# TELEGRAM WEBHOOK
-# -----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.get_json()
+    data = request.get_json()
 
-        if not data:
-            return "no data", 200
-
-        print("Incoming:", data)
-
-        if "message" in data:
-            msg = data["message"]
-
-            chat_id = msg["chat"]["id"]
-            text = msg.get("text", "").strip()
-            username = msg.get("chat", {}).get("username", "unknown")
-
-            # -------- BASIC --------
-            if text == "/start":
-                send_message(chat_id, "Bot is alive")
-
-            elif text == "/total":
-                send_message(chat_id, f"Total: ₦{int(get_total())}")
-
-            elif text == "/today":
-                send_message(chat_id, f"Today: ₦{int(get_today_total())}")
-
-            elif text == "/stats":
-                total = int(get_total())
-                today = int(get_today_total())
-                count = get_count()
-                top_sender, top_amount = get_top_sender()
-
-                send_message(
-                    chat_id,
-                    f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top_sender} ({int(top_amount)})"
-                )
-
-            # -------- HISTORY --------
-            elif text == "/history":
-                email = get_email_by_chat(chat_id)
-
-                if email:
-                    history = get_user_history(email)
-
-                    if history:
-                        msg_out = "🧾 Last Payments:\n\n"
-
-                        for i, (amount, created_at) in enumerate(history, 1):
-                            msg_out += f"{i}. ₦{int(amount)} — {created_at[:10]}\n"
-
-                        send_message(chat_id, msg_out)
-                    else:
-                        send_message(chat_id, "No payment history found.")
-                else:
-                    send_message(chat_id, "❌ Link your email first using /link")
-
-            # -------- LINK --------
-            elif text.startswith("/link"):
-                try:
-                    email = text.split(" ", 1)[1].strip().lower()
-
-                    save_user(chat_id, username)
-                    update_user_email(chat_id, email)
-
-                    send_message(chat_id, f"✅ Linked to {email}")
-                except:
-                    send_message(chat_id, "Usage: /link your@email.com")
-
-            # -------- USER STATS --------
-            elif text == "/my_total":
-                email = get_email_by_chat(chat_id)
-
-                if email:
-                    total = get_user_total(email)
-                    send_message(chat_id, f"💰 Your Total: ₦{int(total)}")
-                else:
-                    send_message(chat_id, "❌ Link your email first using /link")
-
-            elif text == "/my_today":
-                email = get_email_by_chat(chat_id)
-
-                if email:
-                    today = get_user_today(email)
-                    send_message(chat_id, f"📅 Today: ₦{int(today)}")
-                else:
-                    send_message(chat_id, "❌ Link your email first using /link")
-
-            elif text == "/my_last":
-                email = get_email_by_chat(chat_id)
-
-                if email:
-                    last = get_user_last(email)
-
-                    if last:
-                        amount, time, ref = last
-                        send_message(chat_id, f"🧾 Last Payment:\n₦{int(amount)}\n{time}\n{ref}")
-                    else:
-                        send_message(chat_id, "No payments found.")
-                else:
-                    send_message(chat_id, "❌ Link your email first using /link")
-
-            # -------- TEXT PAYMENT --------
-            elif is_payment_message(text):
-                amount = extract_amount(text)
-
-                save_payment(amount, text, sender=username)
-
-                send_message(chat_id, f"Payment detected: ₦{amount}")
-
-                if OWNER_CHAT_ID:
-                    send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
-
-            # -------- DEFAULT --------
-            else:
-                send_message(chat_id, text)
-
+    if not data or "message" not in data:
         return "ok", 200
 
-    except Exception as e:
-        print("Webhook error:", e)
-        return "error", 200
+    msg = data["message"]
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "").strip()
+    username = msg.get("chat", {}).get("username", "unknown")
+
+    if text == "/start":
+        send_message(chat_id, "Bot is alive")
+
+    elif text == "/link":
+        send_message(chat_id, "Usage: /link email@example.com")
+
+    elif text.startswith("/link"):
+        email = text.split(" ", 1)[1].strip().lower()
+        save_user(chat_id, username)
+        update_user_email(chat_id, email)
+        send_message(chat_id, f"✅ Linked to {email}")
+
+    elif text == "/total":
+        send_message(chat_id, f"Total: ₦{get_total()}")
+
+    elif text == "/today":
+        send_message(chat_id, f"Today: ₦{get_today_total()}")
+
+    elif text == "/stats":
+        total = get_total()
+        today = get_today_total()
+        count = get_count()
+        top_sender, top_amount = get_top_sender()
+
+        send_message(chat_id,
+            f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top_sender} ({top_amount})"
+        )
+
+    elif text == "/history":
+        email = get_email_by_chat(chat_id)
+
+        if not email:
+            send_message(chat_id, "❌ Link your email first using /link")
+        else:
+            history = get_user_history(email)
+
+            if not history:
+                send_message(chat_id, "No payment history found.")
+            else:
+                msg_out = "🧾 Last Payments:\n\n"
+                for i, (amount, created_at) in enumerate(history, 1):
+                    msg_out += f"{i}. ₦{amount} — {created_at[:10]}\n"
+
+                send_message(chat_id, msg_out)
+
+    elif is_payment_message(text):
+        amount = extract_amount(text)
+        save_payment(amount, text, sender=username)
+
+        send_message(chat_id, f"Payment detected: ₦{amount}")
+
+        if OWNER_CHAT_ID:
+            send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
+
+    else:
+        send_message(chat_id, text)
+
+    return "ok", 200
 
 
-# -----------------------
-# PAYSTACK WEBHOOK
-# -----------------------
 @app.route("/paystack/webhook", methods=["POST"])
 def paystack_webhook():
     try:
@@ -190,101 +122,36 @@ def paystack_webhook():
         signature = request.headers.get("x-paystack-signature")
         payload = request.data
 
-        computed_signature = hmac.new(
-            secret.encode(),
-            payload,
-            hashlib.sha512
-        ).hexdigest()
+        computed = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
 
-        if signature != computed_signature:
-            print("Invalid Paystack signature")
+        if signature != computed:
             return "unauthorized", 401
 
         data = request.get_json()
-        print("PAYSTACK EVENT:", data)
+        info = data.get("data", {})
 
-        if data.get("event") == "charge.success":
-            info = data.get("data", {})
+        email = info.get("customer", {}).get("email", "").strip().lower()
+        amount = info.get("amount", 0) / 100
+        ref = info.get("reference")
 
-            reference = info.get("reference")
-            amount = info.get("amount", 0) / 100
-            email = info.get("customer", {}).get("email", "unknown").strip().lower()
+        save_payment(amount, "PAYSTACK", sender=email, reference=ref)
 
-            print("DEBUG SAVING:", email, amount, reference)
+        user_chat = get_user_by_email(email)
 
-            message = (
-                "💰 NEW PAYMENT RECEIVED\n\n"
-                f"Amount: ₦{int(amount)}\n"
-                f"Email: {email}\n"
-                f"Ref: {reference}"
-            )
+        msg = f"💰 PAYMENT RECEIVED\n₦{amount}\n{email}\n{ref}"
 
-            user_chat = get_user_by_email(email)
-
-            if user_chat:
-                send_message(user_chat, message)
-            elif OWNER_CHAT_ID:
-                send_message(OWNER_CHAT_ID, message)
-
-            save_payment(
-                amount,
-                message,
-                sender=email,
-                reference=reference
-            )
-
-            print("DEBUG SAVED SUCCESS")
+        if user_chat:
+            send_message(user_chat, msg)
+        elif OWNER_CHAT_ID:
+            send_message(OWNER_CHAT_ID, msg)
 
         return "ok", 200
 
     except Exception as e:
-        print("Paystack webhook error:", e)
+        print("Paystack error:", e)
         return "error", 200
 
 
-# -----------------------
-# DEBUG ROUTE
-# -----------------------
-@app.route("/debug/users")
-def debug_users():
-    import sqlite3
-    from database.db import DB_PATH
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT chat_id, email FROM users")
-    rows = cursor.fetchall()
-
-    conn.close()
-
-    return {"users": rows}
-# -----------------------
-@app.route("/debug/payments")
-def debug_payments():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT sender, amount, created_at
-            FROM payments
-            ORDER BY id DESC
-            LIMIT 5
-        """)
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        return {"payments": rows}
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# -----------------------
-# RUN
-# -----------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
