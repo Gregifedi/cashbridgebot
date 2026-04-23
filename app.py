@@ -45,13 +45,12 @@ def home():
 
 
 # -----------------------
-# TELEGRAM WEBHOOK
+# WEBHOOK
 # -----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         data = request.get_json()
-
         if not data or "message" not in data:
             return "ok", 200
 
@@ -60,7 +59,8 @@ def webhook():
         text = msg.get("text", "").strip()
         username = msg.get("chat", {}).get("username", "unknown")
 
-        # COMMANDS
+        # ---------------- COMMANDS ----------------
+
         if text == "/start":
             send_message(chat_id, "Bot is alive")
 
@@ -109,9 +109,20 @@ def webhook():
 
                     send_message(chat_id, msg_out)
 
+        # ---------------- PAYMENT DETECTION ----------------
+
         elif is_payment_message(text):
             amount = extract_amount(text)
-            save_payment(amount, text, sender=username)
+
+            # FIX: ALWAYS LINK PAYMENT TO CHAT_ID (this is the real fix)
+            email = get_email_by_chat(chat_id)
+
+            save_payment(
+                amount=amount,
+                message=text,
+                sender=email or username,
+                chat_id=chat_id
+            )
 
             send_message(chat_id, f"Payment detected: ₦{amount}")
 
@@ -156,14 +167,20 @@ def paystack_webhook():
         if not email:
             return "ok", 200
 
-        save_payment(amount, "PAYSTACK", sender=email, reference=ref)
+        # FIX: also attach chat_id properly
+        chat_id = get_user_by_email(email)
 
-        user_chat = get_user_by_email(email)
+        save_payment(
+            amount=amount,
+            message="PAYSTACK",
+            sender=email,
+            chat_id=chat_id
+        )
 
         msg = f"💰 PAYMENT RECEIVED\n₦{amount}\n{email}\n{ref}"
 
-        if user_chat:
-            send_message(user_chat, msg)
+        if chat_id:
+            send_message(chat_id, msg)
         elif OWNER_CHAT_ID:
             send_message(OWNER_CHAT_ID, msg)
 
