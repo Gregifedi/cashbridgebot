@@ -65,7 +65,7 @@ def save_payment(amount, message, chat_id, sender="unknown", reference=None):
 
 
 # -----------------------
-# USERS
+# USER SYSTEM
 # -----------------------
 def save_user(chat_id, username):
     conn = sqlite3.connect(DB_PATH)
@@ -117,7 +117,7 @@ def get_user_by_email(email):
 
 
 # -----------------------
-# STATS (GLOBAL)
+# STATS
 # -----------------------
 def get_total():
     conn = sqlite3.connect(DB_PATH)
