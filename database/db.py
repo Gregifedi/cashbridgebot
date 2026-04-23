@@ -1,47 +1,41 @@
+import psycopg2
+import os
+from datetime import datetime
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
-
-
-
-
-
-
-
-
-
-
-
-import sqlite3
-from datetime import datetime, date
-
-DB_PATH = "database/payments.db"
+# -----------------------
+# CONNECTION
+# -----------------------
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
 
 # -----------------------
 # INIT DB
 # -----------------------
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            amount REAL,
-            message TEXT,
-            sender TEXT,
-            reference TEXT UNIQUE,
-            created_at TEXT
-        )
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        chat_id BIGINT PRIMARY KEY,
+        username TEXT,
+        email TEXT
+    )
     """)
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id TEXT UNIQUE,
-            username TEXT,
-            email TEXT UNIQUE
-        )
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        chat_id BIGINT,
+        amount NUMERIC,
+        message TEXT,
+        reference TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
     """)
 
     conn.commit()
@@ -49,237 +43,163 @@ def init_db():
 
 
 # -----------------------
-# SAVE PAYMENT
-# -----------------------
-def save_payment(amount, message, sender="unknown", reference=None):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    try:
-        amount = float(amount) if amount is not None else 0.0
-        sender = (sender or "unknown").strip().lower()
-
-        cursor.execute("""
-            INSERT INTO payments (amount, message, sender, reference, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            amount,
-            message,
-            sender,
-            reference,
-            datetime.utcnow().isoformat()
-        ))
-
-        conn.commit()
-
-    except sqlite3.IntegrityError:
-        print("Duplicate payment ignored:", reference)
-
-    except Exception as e:
-        print("DB INSERT ERROR:", e)
-
-    finally:
-        conn.close()
-
-
-# -----------------------
-# USER SAVE / LINK
+# USER FUNCTIONS
 # -----------------------
 def save_user(chat_id, username):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    try:
-        cursor.execute("""
-            INSERT OR IGNORE INTO users (chat_id, username)
-            VALUES (?, ?)
-        """, (chat_id, username))
+    cur.execute("""
+        INSERT INTO users (chat_id, username)
+        VALUES (%s, %s)
+        ON CONFLICT (chat_id)
+        DO UPDATE SET username = EXCLUDED.username
+    """, (chat_id, username))
 
-        conn.commit()
-
-    finally:
-        conn.close()
+    conn.commit()
+    conn.close()
 
 
 def update_user_email(chat_id, email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    email = (email or "").strip().lower()
-
-    cursor.execute("""
-        INSERT INTO users (chat_id, email)
-        VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET email=excluded.email
-    """, (chat_id, email))
+    cur.execute("""
+        UPDATE users SET email = %s WHERE chat_id = %s
+    """, (email, chat_id))
 
     conn.commit()
     conn.close()
 
 
 def get_email_by_chat(chat_id):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("""
-        SELECT email FROM users WHERE chat_id = ?
-    """, (chat_id,))
+    cur.execute("SELECT email FROM users WHERE chat_id = %s", (chat_id,))
+    row = cur.fetchone()
 
-    result = cursor.fetchone()
     conn.close()
-
-    return result[0] if result else None
+    return row[0] if row else None
 
 
 def get_user_by_email(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    email = (email or "").strip().lower()
+    cur.execute("SELECT chat_id FROM users WHERE email = %s", (email,))
+    row = cur.fetchone()
 
-    cursor.execute("""
-        SELECT chat_id FROM users WHERE LOWER(email) = ?
-    """, (email,))
-
-    result = cursor.fetchone()
     conn.close()
-
-    return result[0] if result else None
+    return row[0] if row else None
 
 
 # -----------------------
-# GLOBAL STATS
+# PAYMENT FUNCTIONS
+# -----------------------
+def save_payment(amount, message, sender=None, reference=None, chat_id=None):
+    """
+    We prioritize chat_id as identity.
+    If not available, fallback to lookup by sender email.
+    """
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    resolved_chat_id = chat_id
+
+    # if chat_id not provided, try resolve via email
+    if not resolved_chat_id and sender:
+        cur.execute("SELECT chat_id FROM users WHERE email = %s", (sender,))
+        row = cur.fetchone()
+        if row:
+            resolved_chat_id = row[0]
+
+    cur.execute("""
+        INSERT INTO payments (chat_id, amount, message, reference)
+        VALUES (%s, %s, %s, %s)
+    """, (resolved_chat_id, amount, message, reference))
+
+    conn.commit()
+    conn.close()
+
+
+# -----------------------
+# STATS
 # -----------------------
 def get_total():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("SELECT COALESCE(SUM(amount),0) FROM payments WHERE amount IS NOT NULL")
-    total = cursor.fetchone()[0]
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM payments")
+    total = cur.fetchone()[0]
 
     conn.close()
-    return total
+    return float(total)
 
 
 def get_today_total():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    today = date.today().isoformat()
-
-    cursor.execute("""
+    cur.execute("""
         SELECT COALESCE(SUM(amount),0)
         FROM payments
-        WHERE DATE(created_at)=?
-    """, (today,))
+        WHERE DATE(created_at) = CURRENT_DATE
+    """)
 
-    total = cursor.fetchone()[0]
+    total = cur.fetchone()[0]
     conn.close()
-    return total
+    return float(total)
 
 
 def get_count():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM payments")
-    count = cursor.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM payments")
+    count = cur.fetchone()[0]
 
     conn.close()
     return count
 
 
 def get_top_sender():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("""
-        SELECT sender, COALESCE(SUM(amount),0) as total
-        FROM payments
-        GROUP BY sender
+    cur.execute("""
+        SELECT u.email, COALESCE(SUM(p.amount),0) as total
+        FROM payments p
+        LEFT JOIN users u ON p.chat_id = u.chat_id
+        GROUP BY u.email
         ORDER BY total DESC
         LIMIT 1
     """)
 
-    result = cursor.fetchone()
+    row = cur.fetchone()
     conn.close()
 
-    return result if result else (None, 0)
+    if not row or not row[0]:
+        return ("None", 0)
+
+    return row[0], float(row[1])
 
 
-# -----------------------
-# USER STATS
-# -----------------------
-def get_user_total(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+def get_user_history(email, limit=10):
+    conn = get_conn()
+    cur = conn.cursor()
 
-    email = (email or "").strip().lower()
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(amount),0)
-        FROM payments
-        WHERE LOWER(sender)=LOWER(?)
-    """, (email,))
-
-    total = cursor.fetchone()[0]
-    conn.close()
-    return total
-
-
-def get_user_today(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    email = (email or "").strip().lower()
-    today = date.today().isoformat()
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(amount),0)
-        FROM payments
-        WHERE LOWER(sender)=LOWER(?)
-        AND DATE(created_at)=?
-    """, (email, today))
-
-    total = cursor.fetchone()[0]
-    conn.close()
-    return total
-
-
-def get_user_last(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    email = (email or "").strip().lower()
-
-    cursor.execute("""
-        SELECT amount, created_at, reference
-        FROM payments
-        WHERE LOWER(sender)=LOWER(?)
-        ORDER BY id DESC
-        LIMIT 1
-    """, (email,))
-
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-
-def get_user_history(email, limit=5):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    email = (email or "").strip().lower()
-
-    cursor.execute("""
-        SELECT amount, created_at
-        FROM payments
-        WHERE LOWER(sender)=LOWER(?)
-        ORDER BY id DESC
-        LIMIT ?
+    cur.execute("""
+        SELECT p.amount, p.created_at
+        FROM payments p
+        JOIN users u ON p.chat_id = u.chat_id
+        WHERE u.email = %s
+        ORDER BY p.created_at DESC
+        LIMIT %s
     """, (email, limit))
 
-    rows = cursor.fetchall()
+    rows = cur.fetchall()
     conn.close()
 
     return rows
