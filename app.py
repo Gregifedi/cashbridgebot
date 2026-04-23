@@ -26,12 +26,16 @@ init_db()
 
 
 # -----------------------
-# TELEGRAM SEND
+# TELEGRAM SEND (SAFE)
 # -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
-        requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+        requests.post(
+            url,
+            json={"chat_id": chat_id, "text": text},
+            timeout=5
+        )
     except Exception as e:
         print("Send error:", e)
 
@@ -55,9 +59,12 @@ def webhook():
             return "ok", 200
 
         msg = data["message"]
+
         chat_id = msg["chat"]["id"]
         text = msg.get("text", "").strip()
-        username = msg.get("chat", {}).get("username", "unknown")
+
+        user = msg.get("from", {})
+        username = user.get("username") or user.get("first_name") or str(chat_id)
 
         # ---------------- COMMANDS ----------------
 
@@ -98,7 +105,7 @@ def webhook():
             if not email:
                 send_message(chat_id, "❌ Link your email first using /link")
             else:
-                history = get_user_history(email)
+                history = get_user_history(chat_id)
 
                 if not history:
                     send_message(chat_id, "No payment history found.")
@@ -114,14 +121,11 @@ def webhook():
         elif is_payment_message(text):
             amount = extract_amount(text)
 
-            # FIX: ALWAYS LINK PAYMENT TO CHAT_ID (this is the real fix)
-            email = get_email_by_chat(chat_id)
-
             save_payment(
                 amount=amount,
                 message=text,
-                sender=email or username,
-                chat_id=chat_id
+                chat_id=chat_id,
+                sender=username
             )
 
             send_message(chat_id, f"Payment detected: ₦{amount}")
@@ -147,11 +151,11 @@ def paystack_webhook():
     try:
         secret = os.environ.get("PAYSTACK_SECRET_KEY")
         signature = request.headers.get("x-paystack-signature")
-        payload = request.data
 
         if not secret or not signature:
             return "unauthorized", 401
 
+        payload = request.data
         computed = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
 
         if signature != computed:
@@ -167,14 +171,13 @@ def paystack_webhook():
         if not email:
             return "ok", 200
 
-        # FIX: also attach chat_id properly
         chat_id = get_user_by_email(email)
 
         save_payment(
             amount=amount,
             message="PAYSTACK",
-            sender=email,
-            chat_id=chat_id
+            chat_id=chat_id,
+            sender=email
         )
 
         msg = f"💰 PAYMENT RECEIVED\n₦{amount}\n{email}\n{ref}"
