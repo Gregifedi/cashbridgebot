@@ -26,16 +26,12 @@ init_db()
 
 
 # -----------------------
-# TELEGRAM SEND (SAFE)
+# TELEGRAM SEND
 # -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
-        requests.post(
-            url,
-            json={"chat_id": chat_id, "text": text},
-            timeout=5
-        )
+        requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=5)
     except Exception as e:
         print("Send error:", e)
 
@@ -71,6 +67,27 @@ def webhook():
         if text == "/start":
             send_message(chat_id, "Bot is alive")
 
+        elif text == "/pay":
+            send_message(
+                chat_id,
+                "💳 Premium Access\n\n"
+                "Get access to the private group for just ₦1,000\n\n"
+                "📌 What you’ll get:\n"
+                "- Real money tips\n"
+                "- Useful tools\n"
+                "- Daily updates\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "💰 Payment Details:\n"
+                "Bank: First Bank\n"
+                "Account Name: Osakwe Gregory Ifedi\n"
+                "Account Number: 3098765431\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                "After payment, send:\n"
+                "I paid 1000\n\n"
+                "⚡ You’ll be added immediately.\n"
+                "⚠️ Limited slots — price may increase soon"
+            )
+
         elif text.startswith("/link"):
             parts = text.split(" ", 1)
 
@@ -105,7 +122,7 @@ def webhook():
             if not email:
                 send_message(chat_id, "❌ Link your email first using /link")
             else:
-                history = get_user_history(chat_id)
+                history = get_user_history(email)
 
                 if not history:
                     send_message(chat_id, "No payment history found.")
@@ -124,14 +141,21 @@ def webhook():
             save_payment(
                 amount=amount,
                 message=text,
-                chat_id=chat_id,
                 sender=username
             )
 
-            send_message(chat_id, f"Payment detected: ₦{amount}")
+            send_message(
+                chat_id,
+                f"✅ Payment received: ₦{amount}\n\n"
+                "⏳ Processing your access...\n"
+                "You’ll be added shortly."
+            )
 
             if OWNER_CHAT_ID:
-                send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
+                send_message(
+                    OWNER_CHAT_ID,
+                    f"💰 NEW PAYMENT\n\n₦{amount}\nUser: {username}\nChat ID: {chat_id}"
+                )
 
         else:
             send_message(chat_id, text)
@@ -176,7 +200,6 @@ def paystack_webhook():
         save_payment(
             amount=amount,
             message="PAYSTACK",
-            chat_id=chat_id,
             sender=email
         )
 
