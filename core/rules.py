@@ -29,18 +29,7 @@ def extract_amount(text):
     if not text:
         return 0.0
 
-    text = text.replace(",", "").lower()
+    text = text.replace(",", "")
 
-    patterns = [
-        r"₦\s?(\d+)",
-        r"\bngn\s?(\d+)",
-        r"\bn\s?(\d+)",
-        r"(\d+)"
-    ]
-
-    for p in patterns:
-        m = re.search(p, text)
-        if m:
-            return float(m.group(1))
-
-    return 0.0
+    match = re.search(r"(\d+)", text)
+    return float(match.group(1)) if match else 0.0
