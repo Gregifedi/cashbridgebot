@@ -51,13 +51,14 @@ def home():
 def webhook():
     try:
         data = request.get_json()
-        if not data or "message" not in data:
+
+        msg = data.get("message") or data.get("edited_message") or data.get("channel_post")
+        if not msg:
             return "ok", 200
 
-        msg = data["message"]
-
         chat_id = msg["chat"]["id"]
-        text = msg.get("text", "").strip()
+        text = msg.get("text") or msg.get("caption") or ""
+        text = text.strip()
 
         user = msg.get("from", {})
         username = user.get("username") or user.get("first_name") or str(chat_id)
@@ -71,21 +72,8 @@ def webhook():
             send_message(
                 chat_id,
                 "💳 Premium Access\n\n"
-                "Get access to the private group for just ₦1,000\n\n"
-                "📌 What you’ll get:\n"
-                "- Real money tips\n"
-                "- Useful tools\n"
-                "- Daily updates\n\n"
-                "━━━━━━━━━━━━━━━\n"
-                "💰 Payment Details:\n"
-                "Bank: First Bank\n"
-                "Account Name: Osakwe Gregory Ifedi\n"
-                "Account Number: 3098765431\n"
-                "━━━━━━━━━━━━━━━\n\n"
-                "After payment, send:\n"
-                "I paid 1000\n\n"
-                "⚡ You’ll be added immediately.\n"
-                "⚠️ Limited slots — price may increase soon"
+                "Get access for ₦1,000\n\n"
+                "Pay to bank account and send confirmation message."
             )
 
         elif text.startswith("/link"):
@@ -138,27 +126,28 @@ def webhook():
         elif is_payment_message(text):
             amount = extract_amount(text)
 
+            email = get_email_by_chat(chat_id)
+
+            if not email:
+                send_message(chat_id, "❌ Link your email first using /link")
+                return "ok", 200
+
             save_payment(
                 amount=amount,
                 message=text,
-                sender=username
+                sender=email
             )
 
             send_message(
                 chat_id,
-                f"✅ Payment received: ₦{amount}\n\n"
-                "⏳ Processing your access...\n"
-                "You’ll be added shortly."
+                f"✅ Payment received: ₦{amount}"
             )
 
             if OWNER_CHAT_ID:
                 send_message(
                     OWNER_CHAT_ID,
-                    f"💰 NEW PAYMENT\n\n₦{amount}\nUser: {username}\nChat ID: {chat_id}"
+                    f"💰 PAYMENT\n₦{amount}\nEmail: {email}"
                 )
-
-        else:
-            send_message(chat_id, text)
 
         return "ok", 200
 
