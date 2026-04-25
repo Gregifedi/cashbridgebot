@@ -19,10 +19,7 @@ def is_payment_message(text):
 
     text = text.lower()
 
-    # must have keyword
     has_keyword = any(k in text for k in KEYWORDS)
-
-    # must have number (critical fix)
     has_number = re.search(r"\d+", text) is not None
 
     return has_keyword and has_number
@@ -32,7 +29,7 @@ def extract_amount(text):
     if not text:
         return 0.0
 
-    text = text.lower().replace(",", "")
+    text = text.replace(",", "").lower()
 
     patterns = [
         r"₦\s?(\d+)",
