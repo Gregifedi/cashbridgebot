@@ -1,8 +1,6 @@
 from flask import Flask, request
 import requests
 import os
-import hashlib
-import hmac
 
 from core.rules import is_payment_message, extract_amount
 from config import OWNER_CHAT_ID, TELEGRAM_API
@@ -17,7 +15,6 @@ from database.db import (
     save_user,
     update_user_email,
     get_email_by_chat,
-    get_user_by_email,
     get_user_history
 )
 
@@ -25,9 +22,6 @@ app = Flask(__name__)
 init_db()
 
 
-# -----------------------
-# TELEGRAM SEND
-# -----------------------
 def send_message(chat_id, text):
     try:
         url = f"{TELEGRAM_API}/sendMessage"
@@ -36,17 +30,11 @@ def send_message(chat_id, text):
         print("Send error:", e)
 
 
-# -----------------------
-# HOME
-# -----------------------
 @app.route("/")
 def home():
     return "CashBridgeBot is running"
 
 
-# -----------------------
-# WEBHOOK
-# -----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -61,7 +49,7 @@ def webhook():
         text = text.strip()
 
         user = msg.get("from", {})
-        username = user.get("username") or user.get("first_name") or str(chat_id)
+        username = user.get("username") or str(chat_id)
 
         # ---------------- COMMANDS ----------------
 
@@ -69,85 +57,49 @@ def webhook():
             send_message(chat_id, "Bot is alive")
 
         elif text == "/pay":
-            send_message(
-                chat_id,
-                "💳 Premium Access\n\n"
-                "Get access for ₦1,000\n\n"
-                "Pay to bank account and send confirmation message."
-            )
+            send_message(chat_id, "💳 Payment system active")
 
         elif text.startswith("/link"):
             parts = text.split(" ", 1)
-
-            if len(parts) < 2:
-                send_message(chat_id, "Usage: /link email@example.com")
-            else:
+            if len(parts) > 1:
                 email = parts[1].strip().lower()
                 save_user(chat_id, username)
                 update_user_email(chat_id, email)
                 send_message(chat_id, f"✅ Linked to {email}")
-
-        elif text == "/total":
-            send_message(chat_id, f"Total: ₦{get_total()}")
-
-        elif text == "/today":
-            send_message(chat_id, f"Today: ₦{get_today_total()}")
+            else:
+                send_message(chat_id, "Usage: /link email")
 
         elif text == "/stats":
-            total = get_total()
-            today = get_today_total()
-            count = get_count()
-            top = get_top_sender() or ("None", 0)
-
-            send_message(
-                chat_id,
-                f"Total: ₦{total}\nToday: ₦{today}\nCount: {count}\nTop: {top[0]} ({top[1]})"
+            send_message(chat_id,
+                f"Total: ₦{get_total()}\n"
+                f"Today: ₦{get_today_total()}\n"
+                f"Count: {get_count()}\n"
+                f"Top: {get_top_sender()}"
             )
 
         elif text == "/history":
-            email = get_email_by_chat(chat_id)
+            history = get_user_history()
 
-            if not email:
-                send_message(chat_id, "❌ Link your email first using /link")
+            if not history:
+                send_message(chat_id, "No payment history found.")
             else:
-                history = get_user_history(email)
+                msg_out = "🧾 Last Payments:\n\n"
+                for i, (amount, created_at) in enumerate(history, 1):
+                    msg_out += f"{i}. ₦{amount} — {created_at[:10]}\n"
 
-                if not history:
-                    send_message(chat_id, "No payment history found.")
-                else:
-                    msg_out = "🧾 Last Payments:\n\n"
-                    for i, (amount, created_at) in enumerate(history, 1):
-                        msg_out += f"{i}. ₦{amount} — {created_at[:10]}\n"
+                send_message(chat_id, msg_out)
 
-                    send_message(chat_id, msg_out)
-
-        # ---------------- PAYMENT DETECTION ----------------
+        # ---------------- PAYMENT ----------------
 
         elif is_payment_message(text):
             amount = extract_amount(text)
 
-            email = get_email_by_chat(chat_id)
+            save_payment(amount, text, sender=username)
 
-            if not email:
-                send_message(chat_id, "❌ Link your email first using /link")
-                return "ok", 200
-
-            save_payment(
-                amount=amount,
-                message=text,
-                sender=email
-            )
-
-            send_message(
-                chat_id,
-                f"✅ Payment received: ₦{amount}"
-            )
+            send_message(chat_id, f"✅ Payment received: ₦{amount}")
 
             if OWNER_CHAT_ID:
-                send_message(
-                    OWNER_CHAT_ID,
-                    f"💰 PAYMENT\n₦{amount}\nEmail: {email}"
-                )
+                send_message(OWNER_CHAT_ID, f"PAYMENT: ₦{amount}\n{text}")
 
         return "ok", 200
 
@@ -156,59 +108,18 @@ def webhook():
         return "error", 200
 
 
-# -----------------------
-# PAYSTACK WEBHOOK
-# -----------------------
-@app.route("/paystack/webhook", methods=["POST"])
-def paystack_webhook():
-    try:
-        secret = os.environ.get("PAYSTACK_SECRET_KEY")
-        signature = request.headers.get("x-paystack-signature")
-
-        if not secret or not signature:
-            return "unauthorized", 401
-
-        payload = request.data
-        computed = hmac.new(secret.encode(), payload, hashlib.sha512).hexdigest()
-
-        if signature != computed:
-            return "unauthorized", 401
-
-        data = request.get_json() or {}
-        info = data.get("data", {})
-
-        email = info.get("customer", {}).get("email", "").strip().lower()
-        amount = (info.get("amount") or 0) / 100
-        ref = info.get("reference")
-
-        if not email:
-            return "ok", 200
-
-        chat_id = get_user_by_email(email)
-
-        save_payment(
-            amount=amount,
-            message="PAYSTACK",
-            sender=email
-        )
-
-        msg = f"💰 PAYMENT RECEIVED\n₦{amount}\n{email}\n{ref}"
-
-        if chat_id:
-            send_message(chat_id, msg)
-        elif OWNER_CHAT_ID:
-            send_message(OWNER_CHAT_ID, msg)
-
-        return "ok", 200
-
-    except Exception as e:
-        print("Paystack error:", e)
-        return "error", 200
-
-
-# -----------------------
-# RUN
-# -----------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
+
+
+
+
+
+
+
+
+
+
