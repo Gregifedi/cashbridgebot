@@ -1,6 +1,9 @@
 import re
 
 def is_payment_message(text):
+    if not text:
+        return False
+
     text = text.lower()
 
     keywords = [
@@ -10,32 +13,34 @@ def is_payment_message(text):
         "received",
         "transfer",
         "payment",
-        "deposit"
+        "deposit",
+        "paid",     # important for your flow
+        "sent"      # extra coverage
     ]
 
-    return any(word in text for word in keywords)
+    # must contain keyword AND a number
+    has_keyword = any(word in text for word in keywords)
+    has_amount = re.search(r'\d+', text)
+
+    return has_keyword and has_amount
 
 
 def extract_amount(text):
-    """
-    Extracts amount like ₦5000, N5000, 5000 NGN, etc.
-    Returns int or None
-    """
+    if not text:
+        return 0.0
 
-    # match ₦5000 or N5000 or 5000
+    text = text.replace(",", "").lower()
+
     patterns = [
-        r"₦\s?([\d,]+)",
-        r"\bN\s?([\d,]+)",
-        r"\b([\d,]+)\s?naira",
-        r"\b([\d,]{3,})\b"
+        r"₦\s?(\d+)",
+        r"\bngn\s?(\d+)",
+        r"\bn\s?(\d+)",
+        r"(\d+)"
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, text.lower())
+        match = re.search(pattern, text)
         if match:
-            try:
-                return int(match.group(1).replace(",", ""))
-            except:
-                pass
+            return float(match.group(1))
 
-    return None
+    return 0.0
