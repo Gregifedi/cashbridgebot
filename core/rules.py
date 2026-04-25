@@ -1,35 +1,38 @@
 import re
 
+KEYWORDS = [
+    "credited",
+    "credit alert",
+    "debit alert",
+    "received",
+    "transfer",
+    "payment",
+    "deposit",
+    "paid",
+    "sent"
+]
+
+
 def is_payment_message(text):
     if not text:
         return False
 
     text = text.lower()
 
-    keywords = [
-        "credited",
-        "credit alert",
-        "debit alert",
-        "received",
-        "transfer",
-        "payment",
-        "deposit",
-        "paid",     # important for your flow
-        "sent"      # extra coverage
-    ]
+    # must have keyword
+    has_keyword = any(k in text for k in KEYWORDS)
 
-    # must contain keyword AND a number
-    has_keyword = any(word in text for word in keywords)
-    has_amount = re.search(r'\d+', text)
+    # must have number (critical fix)
+    has_number = re.search(r"\d+", text) is not None
 
-    return has_keyword and has_amount
+    return has_keyword and has_number
 
 
 def extract_amount(text):
     if not text:
         return 0.0
 
-    text = text.replace(",", "").lower()
+    text = text.lower().replace(",", "")
 
     patterns = [
         r"₦\s?(\d+)",
@@ -38,9 +41,9 @@ def extract_amount(text):
         r"(\d+)"
     ]
 
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return float(match.group(1))
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return float(m.group(1))
 
     return 0.0
